@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite Sheet Kit — GIF to Sprite Sheet + Godot SpriteFrames</title>
+<meta name="description" content="Free, in-browser: turn an animated GIF (or a sprite strip) into a pixel-perfect sprite sheet, frame JSON, a Godot 4 SpriteFrames .tres and a palette file. Nothing is uploaded.">
+<style>
+  :root { --bg:#17121f; --panel:#221b2e; --line:#3a3150; --text:#ece3d6; --muted:#a79cb0; --gold:#e6b84a; --gold2:#fff1a8; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, "Segoe UI", sans-serif; }
+  header { padding:20px 16px 8px; text-align:center; }
+  h1 { margin:0; font:700 26px Georgia, serif; color:var(--gold); letter-spacing:.5px; }
+  header p { margin:6px auto 0; max-width:720px; color:var(--muted); }
+  main { max-width:1100px; margin:0 auto; padding:12px 16px 40px; display:grid; grid-template-columns: 340px 1fr; gap:16px; }
+  @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .panel h2 { margin:0 0 10px; font:600 15px system-ui; color:var(--gold); }
+  label { display:block; margin:8px 0 4px; color:var(--muted); font-size:13px; }
+  input[type=number], input[type=text], select { width:100%; padding:6px 8px; background:#130f19; color:var(--text); border:1px solid var(--line); border-radius:5px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .drop { border:2px dashed var(--line); border-radius:8px; padding:22px 10px; text-align:center; cursor:pointer; color:var(--muted); }
+  .drop.over { border-color:var(--gold); color:var(--text); }
+  button { margin-top:8px; width:100%; padding:8px; background:#2e2540; color:var(--text); border:1px solid var(--line); border-radius:5px; cursor:pointer; font-weight:600; }
+  button.primary { background:var(--gold); color:#1b1226; border-color:var(--gold); }
+  button:disabled { opacity:.45; cursor:default; }
+  #stage { display:flex; align-items:center; justify-content:center; min-height:320px; background:repeating-conic-gradient(#2a2238 0% 25%, #231d30 0% 50%) 50% / 16px 16px; border-radius:6px; overflow:auto; }
+  canvas { image-rendering: pixelated; }
+  #sheetWrap { margin-top:12px; overflow:auto; max-height:260px; background:#130f19; border-radius:6px; padding:8px; }
+  .stats { margin-top:8px; color:var(--muted); font-size:13px; }
+  .swatches { display:flex; flex-wrap:wrap; gap:3px; margin-top:6px; }
+  .swatches span { width:16px; height:16px; border-radius:2px; border:1px solid #0006; }
+  footer { max-width:1100px; margin:0 auto; padding:0 16px 32px; color:var(--muted); font-size:13px; }
+  footer a { color:var(--gold); }
+  .note { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sprite Sheet Kit</h1>
+  <p>Turn an animated GIF — or a sprite strip — into a pixel-perfect sprite sheet, a frame JSON, a <b>Godot 4 SpriteFrames (.tres)</b> and a palette file. Runs entirely in your browser; nothing is uploaded.</p>
+</header>
+<main>
+  <section class="panel">
+    <h2>1 · Input</h2>
+    <div id="drop" class="drop">Drop a <b>.gif</b> or a <b>.png</b> strip here<br><span class="note">or click to choose a file</span></div>
+    <input id="file" type="file" accept=".gif,.png,image/gif,image/png" hidden>
+    <div id="stripOpts" hidden>
+      <label>PNG strip: frame width × height (px)</label>
+      <div class="row"><input id="fw" type="number" min="1" value="32"><input id="fh" type="number" min="1" value="32"></div>
+      <button id="slice">Slice strip</button>
+    </div>
+    <h2 style="margin-top:16px">2 · Output</h2>
+    <div class="row">
+      <div><label>Layout</label><select id="layout"><option value="row">Horizontal strip</option><option value="grid">Grid</option></select></div>
+      <div><label>Columns (grid)</label><input id="cols" type="number" min="1" value="8"></div>
+    </div>
+    <div class="row">
+      <div><label>FPS</label><input id="fps" type="number" min="1" max="60" value="10"></div>
+      <div><label>Scale (integer)</label><input id="scale" type="number" min="1" max="16" value="1"></div>
+    </div>
+    <div class="row">
+      <div><label>Loop</label><select id="loop"><option value="1">Loop</option><option value="0">Play once</option></select></div>
+      <div><label>Animation name</label><input id="anim" type="text" value="default"></div>
+    </div>
+    <label>Godot resource path of the sheet</label>
+    <input id="respath" type="text" value="res://sprites/sheet.png">
+    <button id="dlSheet" class="primary" disabled>Download sprite sheet (.png)</button>
+    <button id="dlJson" disabled>Download frame data (.json)</button>
+    <button id="dlTres" disabled>Download Godot SpriteFrames (.tres)</button>
+    <button id="dlPal" disabled>Download palette (.gpl / .hex)</button>
+    <p class="note">Tip: keep pixel art crisp — scale by whole numbers and use nearest-neighbour filtering (Godot: Texture Filter = Nearest).</p>
+  </section>
+  <section class="panel">
+    <h2>Preview</h2>
+    <div id="stage"><span class="note">Your animation plays here.</span></div>
+    <div class="row" style="margin-top:8px">
+      <div><label>Zoom</label><input id="zoom" type="range" min="1" max="16" value="6"></div>
+      <div><label>Background</label><select id="bgsel"><option value="checker">Checker</option><option value="#17121f">Dark</option><option value="#6b8f4e">Grass</option><option value="#ffffff">White</option></select></div>
+    </div>
+    <div id="stats" class="stats"></div>
+    <div id="swatches" class="swatches"></div>
+    <div id="sheetWrap" hidden><canvas id="sheet"></canvas></div>
+  </section>
+</main>
+<footer>
+  Made by <b>Aurum Nocturne</b>. Need animated props that are already sliced, lit and Godot-ready?
+  <a href="https://usasori-data.itch.io/arcane-curiosities-vol1" target="_blank" rel="noopener">Arcane Curiosities</a> ·
+  <a href="https://usasori-data.itch.io/millreach-tileset" target="_blank" rel="noopener">Millreach tileset</a> ·
+  <a href="https://usasori-data.itch.io/ashveil-tileset" target="_blank" rel="noopener">Ashveil tileset</a> ·
+  <a href="https://usasori-data.itch.io/magic-circle-vfx-vol1" target="_blank" rel="noopener">Magic Circle VFX</a>
+</footer>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let frames = [];            // ImageData per frame
+let delays = [];            // ms per frame (from GIF)
+let fw = 0, fh = 0, baseName = "sprite";
+let timer = null, cur = 0;
+
+// ---------- GIF decoding (self-contained LZW decoder; composites frames with disposal) ----------
+function decodeGIF(buf) {
+  const b = new Uint8Array(buf); let p = 0;
+  const u16 = () => { const v = b[p] | (b[p + 1] << 8); p += 2; return v; };
+  if (String.fromCharCode(...b.slice(0, 3)) !== "GIF") throw new Error("Not a GIF file");
+  p = 6; const W = u16(), H = u16(); const flags = b[p++]; p += 2;
+  let gct = null; if (flags & 0x80) { const n = 3 * (1 << ((flags & 7) + 1)); gct = b.slice(p, p + n); p += n; }
+  const canvas = new Uint8ClampedArray(W * H * 4); let prev = null;
+  const out = [], dl = []; let gce = { disposal: 0, delay: 100, transp: -1 };
+  while (p < b.length) {
+    const c = b[p++];
+    if (c === 0x3B) break;
+    if (c === 0x21) {
+      const label = b[p++];
+      if (label === 0xF9) { p++; const f = b[p++]; const d = u16() * 10; const t = b[p++]; p++;
+        gce = { disposal: (f >> 2) & 7, delay: d || 100, transp: (f & 1) ? t : -1 };
+      } else { while (b[p]) p += b[p] + 1; p++; }
+      continue;
+    }
+    if (c !== 0x2C) throw new Error("Unsupported GIF block");
+    const x0 = u16(), y0 = u16(), w = u16(), h = u16(); const lf = b[p++];
+    let ct = gct; if (lf & 0x80) { const n = 3 * (1 << ((lf & 7) + 1)); ct = b.slice(p, p + n); p += n; }
+    const interlaced = !!(lf & 0x40); const minCode = b[p++];
+    const data = []; while (b[p]) { for (let i = 1; i <= b[p]; i++) data.push(b[p + i]); p += b[p] + 1; } p++;
+    const idx = lzw(minCode, data, w * h);
+    if (gce.disposal === 3) prev = canvas.slice();
+    const rows = interlaced ? deinterlace(h) : [...Array(h).keys()];
+    for (let r = 0; r < h; r++) {
+      const y = y0 + rows[r]; if (y >= H) continue;
+      for (let x = 0; x < w; x++) {
+        const k = idx[r * w + x]; if (k === gce.transp || x0 + x >= W) continue;
+        const o = (y * W + x0 + x) * 4; canvas[o] = ct[k * 3]; canvas[o + 1] = ct[k * 3 + 1]; canvas[o + 2] = ct[k * 3 + 2]; canvas[o + 3] = 255;
+      }
+    }
+    out.push(new ImageData(canvas.slice(), W, H)); dl.push(gce.delay);
+    if (gce.disposal === 2) { for (let y = y0; y < Math.min(H, y0 + h); y++) for (let x = x0; x < Math.min(W, x0 + w); x++) canvas.fill(0, (y * W + x) * 4, (y * W + x) * 4 + 4); }
+    else if (gce.disposal === 3 && prev) canvas.set(prev);
+    gce = { disposal: 0, delay: 100, transp: -1 };
+  }
+  return { W, H, frames: out, delays: dl };
+}
+function deinterlace(h) { const r = []; for (const [s, st] of [[0, 8], [4, 8], [2, 4], [1, 2]]) for (let y = s; y < h; y += st) r.push(y); const m = new Array(h); r.forEach((y, i) => m[i] = y); return m; }
+function lzw(minCode, data, n) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, next = eoi + 1;
+  const dict = []; for (let i = 0; i < clear; i++) dict[i] = [i];
+  const out = new Uint8Array(n); let o = 0, bits = 0, acc = 0, pos = 0, prevSeq = null;
+  while (o < n) {
+    while (bits < size) { if (pos >= data.length) return out; acc |= data[pos++] << bits; bits += 8; }
+    const code = acc & ((1 << size) - 1); acc >>= size; bits -= size;
+    if (code === clear) { size = minCode + 1; next = eoi + 1; dict.length = clear + 2; prevSeq = null; continue; }
+    if (code === eoi) break;
+    let seq = code < next && dict[code] ? dict[code] : (prevSeq ? prevSeq.concat(prevSeq[0]) : [code]);
+    for (const v of seq) { if (o < n) out[o++] = v; }
+    if (prevSeq && next < 4096) { dict[next++] = prevSeq.concat(seq[0]); if (next === (1 << size) && size < 12) size++; }
+    prevSeq = seq;
+  }
+  return out;
+}
+
+// ---------- input ----------
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); };
+$("file").onchange = (e) => e.target.files[0] && load(e.target.files[0]);
+
+let stripImg = null;
+async function load(file) {
+  baseName = file.name.replace(/\.[^.]+$/, "") || "sprite";
+  $("respath").value = `res://sprites/${baseName}.png`; $("anim").value = "default";
+  if (/\.gif$/i.test(file.name) || file.type === "image/gif") {
+    try {
+      const g = decodeGIF(await file.arrayBuffer());
+      frames = g.frames; delays = g.delays; fw = g.W; fh = g.H; $("stripOpts").hidden = true;
+      const avg = delays.reduce((a, d) => a + d, 0) / delays.length; $("fps").value = Math.max(1, Math.round(1000 / avg));
+      ready();
+    } catch (err) { alert("Could not read that GIF: " + err.message); }
+  } else {
+    stripImg = await createImageBitmap(file); $("stripOpts").hidden = false;
+    $("fh").value = stripImg.height; $("fw").value = Math.min(stripImg.height, stripImg.width);
+    sliceStrip();
+  }
+}
+$("slice").onclick = sliceStrip;
+function sliceStrip() {
+  if (!stripImg) return;
+  fw = +$("fw").value; fh = +$("fh").value;
+  const c = new OffscreenCanvas(stripImg.width, stripImg.height), x = c.getContext("2d"); x.drawImage(stripImg, 0, 0);
+  frames = []; for (let y = 0; y + fh <= stripImg.height; y += fh) for (let X = 0; X + fw <= stripImg.width; X += fw) frames.push(x.getImageData(X, y, fw, fh));
+  delays = frames.map(() => 100); ready();
+}
+
+// ---------- preview, stats ----------
+function ready() {
+  ["dlSheet", "dlJson", "dlTres", "dlPal"].forEach((id) => $(id).disabled = !frames.length);
+  const pal = palette(); $("swatches").innerHTML = pal.slice(0, 256).map((h) => `<span title="${h}" style="background:${h}"></span>`).join("");
+  $("stats").textContent = `${frames.length} frames · ${fw}×${fh}px · ${pal.length} colours${pal.length > 256 ? " (showing 256)" : ""}`;
+  drawSheet(); play();
+}
+function play() {
+  clearInterval(timer); const st = $("stage"); st.innerHTML = ""; const c = document.createElement("canvas"); st.appendChild(c);
+  const z = +$("zoom").value; c.width = fw; c.height = fh; c.style.width = fw * z + "px"; c.style.height = fh * z + "px";
+  const bg = $("bgsel").value; st.style.background = bg === "checker" ? "" : bg;
+  const ctx = c.getContext("2d"); cur = 0;
+  const tick = () => { if (!frames.length) return; ctx.clearRect(0, 0, fw, fh); ctx.putImageData(frames[cur], 0, 0); cur = (cur + 1) % frames.length; };
+  tick(); timer = setInterval(tick, 1000 / Math.max(1, +$("fps").value));
+}
+["zoom", "fps", "bgsel"].forEach((id) => $(id).oninput = () => frames.length && play());
+["layout", "cols", "scale"].forEach((id) => $(id).oninput = () => frames.length && drawSheet());
+function palette() {
+  const set = new Set();
+  for (const f of frames) { const d = f.data; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0) set.add("#" + [d[i], d[i + 1], d[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join("")); }
+  return [...set].sort();
+}
+
+// ---------- outputs ----------
+function geometry() {
+  const n = frames.length, grid = $("layout").value === "grid", cols = grid ? Math.max(1, Math.min(n, +$("cols").value)) : n;
+  return { n, cols, rows: Math.ceil(n / cols), s: Math.max(1, Math.round(+$("scale").value)) };
+}
+function drawSheet() {
+  const { n, cols, rows, s } = geometry(); const c = $("sheet"); c.width = cols * fw * s; c.height = rows * fh * s;
+  const ctx = c.getContext("2d"); ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
+  const tmp = new OffscreenCanvas(fw, fh), tx = tmp.getContext("2d");
+  for (let i = 0; i < n; i++) { tx.putImageData(frames[i], 0, 0); ctx.drawImage(tmp, (i % cols) * fw * s, Math.floor(i / cols) * fh * s, fw * s, fh * s); }
+  c.style.width = Math.min(c.width, 2000) + "px"; $("sheetWrap").hidden = false;
+}
+function save(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+$("dlSheet").onclick = () => $("sheet").toBlob((b) => save(b, `${baseName}_sheet.png`), "image/png");
+$("dlJson").onclick = () => {
+  const { n, cols, s } = geometry();
+  const meta = { image: `${baseName}_sheet.png`, frameWidth: fw * s, frameHeight: fh * s, frames: n, columns: cols, fps: +$("fps").value,
+    loop: $("loop").value === "1", durationsMs: delays, rects: frames.map((_, i) => ({ x: (i % cols) * fw * s, y: Math.floor(i / cols) * fh * s, w: fw * s, h: fh * s })) };
+  save(new Blob([JSON.stringify(meta, null, 2)], { type: "application/json" }), `${baseName}_sheet.json`);
+};
+$("dlTres").onclick = () => {
+  const { n, cols, s } = geometry(); const path = $("respath").value || `res://${baseName}_sheet.png`;
+  const subs = frames.map((_, i) => `[sub_resource type="AtlasTexture" id="f${i}"]\natlas = ExtResource("1_sheet")\nregion = Rect2(${(i % cols) * fw * s}, ${Math.floor(i / cols) * fh * s}, ${fw * s}, ${fh * s})\n`).join("\n");
+  const list = frames.map((_, i) => `{\n"duration": 1.0,\n"texture": SubResource("f${i}")\n}`).join(", ");
+  const tres = `[gd_resource type="SpriteFrames" format=3]\n\n[ext_resource type="Texture2D" path="${path}" id="1_sheet"]\n\n${subs}\n[resource]\nanimations = [{\n"frames": [${list}],\n"loop": ${$("loop").value === "1"},\n"name": &"${$("anim").value || "default"}",\n"speed": ${(+$("fps").value).toFixed(1)}\n}]\n`;
+  save(new Blob([tres], { type: "text/plain" }), `${baseName}.tres`);
+};
+$("dlPal").onclick = () => {
+  const pal = palette();
+  const gpl = "GIMP Palette\nName: " + baseName + "\nColumns: 8\n#\n" + pal.map((h) => { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}\t${h}`; }).join("\n") + "\n";
+  save(new Blob([gpl], { type: "text/plain" }), `${baseName}.gpl`);
+  setTimeout(() => save(new Blob([pal.map((h) => h.slice(1)).join("\n") + "\n"], { type: "text/plain" }), `${baseName}.hex`), 400);
+};
+</script>
+</body>
+</html>
